@@ -1,129 +1,109 @@
+/*jslint node: true */
+/*jshint esnext: true */
+"use strict";
+
 /**
  * Module dependencies.
  */
-var Prismic = require('prismic-nodejs');
-var app = require('./config');
-var PORT = app.get('port');
-var PConfig = require('./prismic-configuration');
-var request = require('request');
+const Prismic = require('prismic-javascript');
+const PrismicDOM = require('prismic-dom');
+const app = require('./config');
+const Cookies = require('cookies');
+const PrismicConfig = require('./prismic-configuration');
+const PORT = app.get('port');
 
-app.listen(PORT, function() {
-  const repoEndpoint = PConfig.apiEndpoint.replace('/api', '');
-  request.post(repoEndpoint + '/app/settings/onboarding/run', {});
-  console.log('Point your browser to: http://localhost:' + PORT);
-  console.log('For help point your browser to: http://localhost:' + PORT + '/help');
+app.listen(PORT, () => {
+  process.stdout.write(`Point your browser to: http://localhost:${PORT}\n`);
 });
 
-
-/**
-* Function to render the 404 page
-*/
-function render404(req, res, message) {
-  return res.status(404).render('error', { message: message });
-}
-
-
-/**
-* Connect to the API
-*/
+// Middleware to inject prismic context
 app.use((req, res, next) => {
-  Prismic.api(PConfig.apiEndpoint,{accessToken: PConfig.accessToken, req: req})
-  .then((api) => {
-    req.prismic = {api: api};
-    res.locals.ctx = {
-      endpoint: PConfig.apiEndpoint,
-      linkResolver: PConfig.linkResolver
-    };
+  res.locals.ctx = {
+    endpoint: PrismicConfig.apiEndpoint,
+    linkResolver: PrismicConfig.linkResolver,
+  };
+  // add PrismicDOM in locals to access them in templates.
+  res.locals.PrismicDOM = PrismicDOM;
+  Prismic.api(PrismicConfig.apiEndpoint, {
+    accessToken: PrismicConfig.accessToken,
+    req,
+  }).then((api) => {
+    req.prismic = { api };
     next();
-  }).catch(function(err) {
-    if (err.status == 404) {
-      render404(req, res, 'There was a problem connecting to your API. Please configure your API-Endpoint in your configuration file.');
-    } else {
-      res.status(500).render('error', {message: err});
-    }
+  }).catch((error) => {
+    next(error.message);
   });
 });
 
-
-/**
-* Query the site navigation with every route
-*/
+// Query the site layout with every route 
 app.route('*').get((req, res, next) => {
-  req.prismic.api.getSingle('navigation').then(function(navContent){
+  req.prismic.api.getSingle('menu')
+  .then(function(menuContent){
     
-    // Define the navigation content
-    res.locals.navContent = navContent;
+    // Define the layout content
+    res.locals.menuContent = menuContent;
     next();
   });
 });
 
 
-/**
-* Preconfigured prismic preview
-*/
-app.get('/preview', function(req, res) {
-  return Prismic.preview(req.prismic.api, PConfig.linkResolver, req, res);
+/*
+ * -------------- Routes --------------
+ */
+
+/*
+ * Preconfigured prismic preview
+ */
+app.get('/preview', (req, res) => {
+  const token = req.query.token;
+  if (token) {
+    req.prismic.api.previewSession(token, PrismicConfig.linkResolver, '/')
+    .then((url) => {
+      const cookies = new Cookies(req, res);
+      cookies.set(Prismic.previewCookie, token, { maxAge: 30 * 60 * 1000, path: '/', httpOnly: false });
+      res.redirect(302, url);
+    }).catch((err) => {
+      res.status(500).send(`Error 500 in preview: ${err.message}`);
+    });
+  } else {
+    res.send(400, 'Missing token from querystring');
+  }
 });
 
-
-/**
-* Homepage Route
-*/
-app.get('/', function(req, res) {
+/*
+ * Page route
+ */
+app.get('/:uid', (req, res, next) => {
+  // Store the param uid in a variable
+  const uid = req.params.uid;
   
-  // Query the homepage content
-  req.prismic.api.getSingle('homepage').then(function(homepageContent) {
-    
-    // Render the 404 page if this uid is not found
-    if(!homepageContent) {
-      return render404(req, res, 'Could not find a homepage document in your content repository.');
+  // Get a page by its uid
+  req.prismic.api.getByUID("page", uid)
+  .then((pageContent) => {
+    if (pageContent) {
+      res.render('page', { pageContent });
+    } else {
+      res.status(404).render('404');
     }
-    
-    // Render the homepage
-    res.render('homepage', { homepageContent: homepageContent });
+  })
+  .catch((error) => {
+    next(`error when retriving page ${error.message}`);
   });
 });
 
-
-/**
-* Help Page Route
-*/
-app.get('/help', function(req, res) {
-  const repoRegexp = new RegExp('^(https?:\/\/([\\-\\w]+)\\.[a-z]+\\.(io|dev))\/api$');
-  const match = PConfig.apiEndpoint.match(repoRegexp);
-  const repoURL = match[1];
-  const name = match[2];
-  const host = req.headers.host;
-  const isConfigured = name !== 'your-repo-name';
-  res.render('help', {isConfigured, repoURL, name, host});
-});
-
-
-/**
-* Page Route
-*/
-app.get('/page/:uid', function(req, res) {
-  
-  // Define the UID from the url
-  var uid = req.params.uid;
-  
-  // Query the page by its uid
-  req.prismic.api.getByUID('page', uid).then(function(pageContent) {
-    
-    // Render the 404 page if this uid is not found
-    if(!pageContent) {
-      return render404(req, res);
+/*
+ * Homepage route
+ */
+app.get('/', (req, res, next) => {
+  req.prismic.api.getSingle("homepage")
+  .then((pageContent) => {
+    if (pageContent) {
+      res.render('homepage', { pageContent });
+    } else {
+      res.status(404).send('Could not find a homepage document. Make sure you create and publish a homepage document in your repository.');
     }
-    
-    // Render the page
-    res.render('page', { pageContent: pageContent });
+  })
+  .catch((error) => {
+    next(`error when retriving page ${error.message}`);
   });
-});
-
-
-/**
-* Render 404 for any other route
-*/
-app.use('*', function(req, res) {
-  return render404(req, res);
 });
