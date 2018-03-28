@@ -11,8 +11,10 @@ block prepend body
     //- Display the slices
     for slice in pageContent.data.page_content
       case slice.slice_type
-        when 'text_section'
+        when 'key_messages'
           include ./partials/text-section.pug
+        when 'funding'
+          include ./partials/funding.pug
         when 'quote'
           include ./partials/quote.pug
         when 'full_width_image'
