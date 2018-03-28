@@ -1,6 +1,5 @@
 section.funding.content-section
-  .highlight-right
-    != PrismicDOM.RichText.asText(slice.primary.funding_narrative)
+  != PrismicDOM.RichText.asText(slice.primary.funding_narrative)
   
   .highlight-right
     img(src=slice.primary.funding_image.url)
