@@ -95,10 +95,10 @@ app.get('/:uid', (req, res, next) => {
  * Homepage route
  */
 app.get('/', (req, res, next) => {
-  req.prismic.api.getSingle("humanitarian_update")
+  req.prismic.api.getSingle("page")
   .then((pageContent) => {
     if (pageContent) {
-      res.render('humanitarian_update', { pageContent });
+      res.render('page', { pageContent });
     } else {
       res.status(404).send('Could not find a homepage document. Make sure you create and publish a homepage document in your repository.');
     }
